@@ -1,6 +1,6 @@
 import { OrbitControls } from '@react-three/drei';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { Component, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { buildNetShape, netShapeOptions } from './netShapes.js';
 
@@ -28,26 +28,30 @@ export function SpatialNetSimulation() {
 
       <div className="simulation-container spatial-workspace">
         <section className="canvas-panel spatial-canvas-panel">
-          <Canvas
-            camera={{ position: shape.camera, fov: 45 }}
-            shadows
-            dpr={[1, 2]}
-            gl={{ antialias: true }}
-          >
-            <color attach="background" args={['#111827']} />
-            <ambientLight intensity={0.65} />
-            <directionalLight position={[5, 7, 4]} intensity={1.2} castShadow />
-            <directionalLight position={[-4, 3, -5]} intensity={0.45} />
-            <gridHelper args={[9, 18, '#334155', '#1f2937']} position={[0, -0.015, 0]} />
-            <NetModel
-              key={shape.id}
-              shape={shape}
-              targetProgress={progress / 100}
-              autoPlay={autoPlay}
-              onAutoProgress={(value) => setProgress(value)}
-            />
-            <OrbitControls enableDamping makeDefault />
-          </Canvas>
+          <SimulationErrorBoundary>
+            <Canvas
+              camera={{ position: shape.camera, fov: 42, near: 0.1, far: 100 }}
+              shadows
+              dpr={[1, 2]}
+              gl={{ antialias: true, alpha: false }}
+            >
+              <color attach="background" args={['#101827']} />
+              <ambientLight intensity={0.9} />
+              <hemisphereLight args={['#dbeafe', '#1f2937', 0.7]} />
+              <directionalLight position={[5, 7, 4]} intensity={1.35} castShadow />
+              <directionalLight position={[-4, 3, -5]} intensity={0.55} />
+              <gridHelper args={[10, 20, '#475569', '#243244']} position={[0, -0.02, 0]} />
+              <CameraTarget shape={shape} />
+              <NetModel
+                key={shape.id}
+                shape={shape}
+                targetProgress={progress / 100}
+                autoPlay={autoPlay}
+                onAutoProgress={(value) => setProgress(value)}
+              />
+              <OrbitControls target={[0, 1.05, 0]} enableDamping makeDefault />
+            </Canvas>
+          </SimulationErrorBoundary>
         </section>
 
         <aside className="control-panel">
@@ -136,6 +140,42 @@ export function SpatialNetSimulation() {
   );
 }
 
+class SimulationErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="simulation-error">
+          <strong>Không thể khởi tạo mô phỏng 3D.</strong>
+          <span>Trình duyệt cần hỗ trợ WebGL để hiển thị hình không gian.</span>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function CameraTarget({ shape }) {
+  const { camera } = useThree();
+
+  useEffect(() => {
+    camera.position.set(...shape.camera);
+    camera.lookAt(0, 1.05, 0);
+    camera.updateProjectionMatrix();
+  }, [camera, shape]);
+
+  return null;
+}
+
 function NetModel({ shape, targetProgress, autoPlay, onAutoProgress }) {
   const autoDirection = useRef(1);
   const autoValue = useRef(targetProgress);
@@ -176,7 +216,11 @@ function DynamicFace({ face, progress }) {
   const lineRef = useRef();
   const current = useRef(typeof progress === 'number' ? progress : progress.current);
   const geometry = useMemo(() => createGeometry(face.from), [face.from]);
-  const lineGeometry = useMemo(() => new THREE.BufferGeometry(), []);
+  const lineGeometry = useMemo(() => {
+    const outline = new THREE.BufferGeometry();
+    updateLineGeometry(outline, face.from);
+    return outline;
+  }, [face.from]);
 
   useFrame((_, delta) => {
     const target = typeof progress === 'number' ? progress : progress.current;
